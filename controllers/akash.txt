@@ -1,0 +1,487 @@
+const ErrorHander = require("../utils/errorhander.js");
+const catchAsyncErrors = require("../middleware/catchAsyncErrors.js");
+const User = require("../models/userModel.js");
+const sendToken = require("../utils/jwtToken.js");
+const crypto = require("crypto");
+const Candidate = require("../models/candidateModel.js");
+const fs = require("fs");
+const csv = require("fast-csv");
+const { parse } = require('fast-csv');
+const path = require("path");
+const Organizations = require("../models/organizationModel.js");
+const Interview = require("../models/interviewModel.js");
+exports.registerCandidate = catchAsyncErrors(async (req, res, next) => {
+  const {
+    name,
+    department,
+    contact_no,
+    email,
+    total_experience,
+    ctc,
+    ectc,
+    notice_period,
+    address,
+    organization_id,
+    resume,
+    notes,
+    sourced_by,
+    comments_by_hr,
+    interview_schedule,
+    interview_id,
+    selected,
+    joining_date,
+    shortlisted,
+    Organization,
+    interviewer_name,
+    interviewer_comments,
+    ratings,
+    interview_type,
+    org_city,
+    Proceed_for_next,
+  } = req.body;
+  let resFilePath1 = "";
+  let fileName = "";
+  let dataarray = [];
+  let candidateorg = [];
+  let imageDir = `./public/resume/`;
+  let resImageDir = `/resume/`;
+  if (email === "") {
+    return next(new ErrorHander("Please Provide  email", 400));
+  }
+  if (name === "") {
+    return next(new ErrorHander("Please Provide  name ", 400));
+  }
+  if (department === "") {
+    return next(new ErrorHander("Please Provide  department ", 400));
+  }
+  if (contact_no === "") {
+    return next(new ErrorHander("Please Provide  contact_no ", 400));
+  }
+  if (total_experience === "") {
+    return next(new ErrorHander("Please Provide  total_experience ", 400));
+  }
+  if (ctc === "") {
+    return next(new ErrorHander("Please Provide  ctc ", 400));
+  }
+  const candidate = await Candidate.findOne({ email });
+  if (candidate) {
+    return next(new ErrorHander("Email already exists.", 400));
+  }
+  const candidateobj = new Candidate({
+    name: name,
+    department: department,
+    contact_no: contact_no,
+    email: email,
+    total_experience: total_experience,
+    ctc: ctc,
+    ectc: ectc,
+    notice_period: notice_period,
+    address: address,
+    resume: resume,
+    shortlisted: shortlisted,
+    notes: notes,
+    sourced_by: sourced_by,
+    comments_by_hr: comments_by_hr,
+    interview_schedule: interview_schedule,
+    selected: selected,
+    joining_date: joining_date,
+    Organizationsdata: [],
+  });
+  let saveddata = {};
+  // Saving File ie. resume
+  if (req.files?.resume) {
+    uploadPath = __dirname + "uploads";
+    if (!fs.existsSync(imageDir)) {
+      fs.mkdirSync(imageDir, { recursive: true });
+    }
+    if (
+      req.files?.resume.length === undefined ||
+      req.files?.resume.length == 1
+    ) {
+      let randstr = Math.random().toString(36).substring(2, 7);
+      let multimedia = req.files.resume;
+      let imageExt = path.extname(multimedia.name);
+      fileName = `${randstr}${imageExt}`;
+      let filePath = fileName;
+      resFilePath1 = imageDir + fileName;
+      dataarray.push(resImageDir + fileName);
+
+      multimedia.mv(resFilePath1);
+    } else {
+      req.files?.resume.forEach(function (files, index, arr) {
+        let randstr = Math.random().toString(36).substring(2, 7);
+        let multimedia = files;
+
+        let imageExt = path.extname(multimedia.name);
+        fileName = `${randstr}${imageExt}`;
+        let filePath = fileName;
+        resFilePath1 = imageDir + fileName;
+        dataarray.push(resImageDir + fileName);
+
+        multimedia.mv(resFilePath1);
+      });
+    }
+  }
+  candidateobj.resume = dataarray.toString();
+  let datsSave = await candidateobj.save();
+
+  if (datsSave) {
+    let candidate_id = datsSave._id;
+    // Save Interview
+    if (datsSave.selected == "yes") {
+      let interviewer = new Interview({
+        interviewer_name: interviewer_name,
+        interviewer_comments: interviewer_comments,
+        ratings: ratings,
+        interview_type: interview_type,
+        Proceed_for_next: Proceed_for_next,
+        Candidates: candidate_id,
+      });
+      await interviewer.save().then(async (data) => {
+        await Candidate.findByIdAndUpdate(
+          { _id: datsSave._id },
+          { $set: { Interviewerdata: data._id } }
+        );
+      });
+    }
+    // Save Organizations
+    let orgdata = JSON.parse(req.body.Organization);
+    if (orgdata.length > 0) {
+      orgdata.map(async (data) => {
+        let obj = new Organizations({
+          job_title: data.job_title,
+          org_name: data.job_title,
+          job_joining_date: data.job_joining_date,
+          releiving_date: data.releiving_date,
+          experience: data.experience,
+          Candidates: candidate_id,
+          org_city: data.org_city,
+        });
+        await obj.save().then((data) => {
+          candidateorg.push(data._id);
+        });
+        saveddata = await Candidate.findByIdAndUpdate(
+          { _id: datsSave._id },
+          { $set: { Organizationsdata: candidateorg } }
+        );
+      });
+    }
+  }
+  res.status(200).json({
+    success: true,
+    result: saveddata,
+    message: "Candidate Added successful",
+  });
+});
+
+exports.getAllcandidate = catchAsyncErrors(async (req, res, next) => {
+  try {
+    await Candidate.find()
+      .populate("Organizationsdata Interviewerdata")
+      .exec(function (err, datas) {
+        if (err) {
+          console.log("Errror is", err);
+        } else {
+          res.status(200).json({
+            sucess: true,
+            result: datas,
+            maxOrg: 10
+          });
+        }
+      });
+  } catch (err) {
+    console.log("Error in get tender", err);
+  }
+});
+
+exports.deletecandidate = catchAsyncErrors(async (req, res, next) => {
+  let id = req.body.candidateId;
+
+  const tender = await Candidate.findById({ _id: id });
+  if (!tender) {
+    return next(new ErrorHander(" not found", 404));
+  }
+  await tender.remove();
+  res.status(200).json({
+    success: true,
+    message: "Candidate Item Deletion Successfull",
+  });
+});
+
+exports.getCandidateDetails = catchAsyncErrors(async (req, res, next) => {
+  const id = req.params.id;
+
+  let candidateresponse = await Candidate.findById({
+    _id: id,
+  })
+    .populate("Organizationsdata Interviewerdata")
+    .exec();
+  if (candidateresponse) {
+    res.status(200).json({
+      success: true,
+      result: candidateresponse,
+      message: "Candidate Found Sucessfull",
+    });
+  } else {
+    res.status(404).json({
+      success: false,
+      message: "Candidate Not Found",
+    });
+  }
+});
+exports.uploadcsv = catchAsyncErrors(async (req, res, next) => {
+  console.log("Hello")
+  let resFilePath1 = "";
+  let fileName = "";
+  let dataarray = [];
+  let candidateorg = [];
+  let imageDir = `./public/csv/`;
+  let resImageDir = `/csv/`;
+  try {
+    if (req.files?.csvFiles) {
+      uploadPath = __dirname + "uploads";
+      if (!fs.existsSync(imageDir)) {
+        fs.mkdirSync(imageDir, { recursive: true });
+      }
+      if (req.files?.csvFiles.length === undefined || req.files?.csvFiles.length == 1) {
+        let randstr = Math.random().toString(36).substring(2, 7);
+        let multimedia = req.files.csvFiles;
+        let imageExt = path.extname(multimedia.name);
+        fileName = req.files.csvFiles.name;
+        let filePath = fileName;
+        resFilePath1 = imageDir + fileName;
+        dataarray.push(resImageDir + fileName);
+
+        multimedia.mv(resFilePath1);
+        let orgkeyarr = [];
+        let paths = path.join(__dirname, "..", `${resFilePath1}`);
+        let rows = [];
+        fs.createReadStream(paths)
+          .pipe(parse({ headers: true }))
+          .on('error', error => console.error(error))
+          .on('data', row => {
+            console.log("rowrow",row)
+            let name = row.Name ? row.Name : "";
+            let email = row.Email ? row.Email : "";
+            let department = row.Department ? row.Department : ""
+            let totalexp = row['Total Experience'] ? row['Total Experience'] : ""
+            let contactno = row['Contact No'] ? row['Contact No'] : "";
+            let totelexp = row["Total Experience'"] ? row["Total Experience'"] : ""
+            let ctc = row.Ctc ? row.Ctc : "";
+            let ectc = row.Ectc ? row.Ectc : "";
+            let address = row.Address ? row.Address : "";
+            let notes = row.Notes ? row.notes : "";
+            let noticePeriod = row['Notice Period'] ? row['Notice Period'] : "";
+            let sourcedby = row['Sourced By'] ? row['Sourced By'] : "";
+            let commentbyhr = row['Comments By Hr'] ? row['Comments By Hr'] : "";
+            let interviewschedule = row['Interview Schedule'] ? row['Interview Schedule'] : "no";
+            let selected = row.Selected ? row.Selected : "";
+            let joiningdate = row['Joining Date'] ? row['Joining Date'] : "";
+
+            /**********************************/
+            // let elementarray = ['job_title_', 'org_name_', 'org_city_', 'job_joining_date_', 'releiving_date_']
+
+            
+
+
+
+
+            // key.match(/job_title/i)).forEach((key) => {
+            //   if (key) {
+            //     job_titlecount++;
+            //   }
+            //   return job_titlecount;
+            // });
+            // }
+
+
+
+            let job_titlecount = 0;
+            const result = Object.keys(row).filter((key) => key.match(/job_title/i)).forEach((key) => {
+              if (key) {
+                job_titlecount++;
+              }
+              return job_titlecount;
+            });
+            let orgcount = 0;
+            Object.keys(row).filter((key) => key.match(/org_name_/i)).forEach((key) => {
+              if (key) {
+                orgcount++;
+              }
+              return orgcount;
+            });
+
+            let org_city_count = 0;
+            Object.keys(row).filter((key) => key.match(/org_city_/i)).forEach((key) => {
+              if (key) {
+                org_city_count++;
+              }
+              return org_city_count;
+            });
+            let job_joining_date_count = 0;
+            Object.keys(row).filter((key) => key.match(/job_joining_date_/i)).forEach((key) => {
+              if (key) {
+                job_joining_date_count++;
+              }
+              return job_joining_date_count;
+            });
+            let releiving_date__count = 0;
+            Object.keys(row).filter((key) => key.match(/releiving_date_/i)).forEach((key) => {
+              if (key) {
+                releiving_date__count++;
+              }
+              return releiving_date__count;
+            });
+
+            let countarray = [releiving_date__count, job_joining_date_count, org_city_count, orgcount, job_titlecount, 10];
+            let count = Math.max(...countarray)
+            for (let i = 0; i < count; i++) {
+
+              if (row['job_title_' + i]) {
+                console.log(row['job_title_' + i], '----job title index', i);
+              }
+              if (row['org_name_' + i]) {
+                console.log(row['org_name_' + i], '----org_name_ index', i);
+              }
+              if (row['org_city_' + i]) {
+                console.log(row['org_city_' + i], '----org_city index', i);
+              }
+              if (row['job_joining_date_' + i]) {
+                console.log(row['job_joining_date_' + i], '----job joing index', i);
+              }
+
+              if (row['releiving_date_' + i]) {
+                console.log(row['releiving_date_' + i], '----releiving_date_ index', i);
+              }
+              if (row['experience_' + i]) {
+                console.log(row['experience_' + i], '----org_city index', i);
+              }
+            }
+            console.log("key count is", job_titlecount)
+            /**********************************/
+
+
+            const candidateobj = new Candidate({
+              name: name, department: department, contact_no: contactno, email: email, total_experience: totelexp, ctc: ctc, ectc: ectc, notice_period: noticePeriod, address: address, notes: notes, sourced_by: sourcedby, comments_by_hr: commentbyhr, interview_schedule: interviewschedule, selected: selected, joining_date: joiningdate, Organizationsdata: [], Interviewerdata: "", createdAt: new Date(), updatedAt: new Date(),
+            })
+            console.log("candidateobjcandidateobj====", candidateobj)
+            // rows.push(row);
+            // const result =  Object.keys(row).filter((key) => key.match(/job_title/i)).forEach((key) => {
+            //   console.log("Key is",key)
+            //       // orgkeyarr.push(rows[i][key]);
+            //       if(key){
+            //         console.log("Key is",key)
+            //       }
+
+            // })
+          })
+          .on('end', rowCount => {
+            console.log(`Parsed ${rowCount} rows`);
+            // for(let i=0;i<rows.length;i++){
+            //   console.log("rowssss",rows[0]);
+
+            //   const result =  Object.keys(rows[i]).filter((key) => key.match(/job_title/i)).forEach((key) => {
+            //     console.log("Key is",key)
+            //         // orgkeyarr.push(rows[i][key]);
+            //         if(key){
+            //           console.log("Key is",key)
+            //         }
+
+            //   })
+            // //  for
+            // }
+
+
+
+            // this data can be used to write to a db in bulk
+          });
+
+
+
+
+        // const parser = csv.parseStream(csvFile, { headers: true }).on("data", async function (data) {
+        //   const orgkeyarr = []
+        //   // const result = Object.entries(data).reduce((accum, current) => {
+        //   //   const [key, value] = current;
+        //   //   if (key.match(/job_title/i)) {
+        //   //     orgkeyarr.push(key)
+        //   //   }
+
+        //   // }, [])
+
+        //   console.log("data",data)
+        //   const result =  Object.keys(data).filter((key) => key.match(/job_title/i)).forEach((key) => {
+        //     orgkeyarr.push(key);
+        //     console.log("orgkeyarr",orgkeyarr)
+
+        // });
+
+        // });
+      }
+    }
+  }
+  catch (err) {
+    console.log("err", err)
+    return res.json({
+      sucess: false,
+      message: "Failed to insert Csv Data"
+    })
+  }
+});
+
+/*
+parseCsvFile(keyName, selectedColumn) {
+    let rows = [];
+    let nobj = {};
+
+  
+
+    let selectedCol = JSON.parse((selectedColumn));
+
+    //for testing logic
+    //let selectedCol = JSON.parse(JSON.stringify(selectedColumn));
+    const csvFile = s3.getObject(params).createReadStream();
+
+    return new Promise((resolve, reject) => {
+      const parser = csv.parseStream(csvFile, { headers: true }).on("data", function (data) {
+
+        if (selectedCol != null) {
+          for (let key in selectedCol) {
+            if (key == "email" || key == "phone_number" || key == "name" || key == "country_code" ||
+              key == "house_number" || key == "interior_number" || key == "street_name" || key == "city" || key == "state" || key == "country"
+              || key == "postal_code" || key == "address_name") {
+
+              //split string into array
+              const multiObj = selectedCol[key].split(",");
+
+              if (key == "email") {
+                nobj["emailExist"] = true;
+              }
+
+              for (let key1 in multiObj) {
+                let lowerCaseWord = (multiObj[key1].toLowerCase()).replace(/\s/g, "_");
+                let csvKey = (multiObj[key1]);
+
+                if (data[csvKey] != "") {
+                  nobj["multi_" + lowerCaseWord] = data[csvKey];
+                }
+              }
+            } else {
+              nobj[key.toLowerCase()] = data[selectedCol[key]];
+            }
+          }
+          rows.push(nobj);
+          nobj = {};
+
+        } else {
+          rows.push(data)
+        }
+      }).on("end", async function () {
+        resolve(rows)
+      }).on("error", function () {
+        reject('csv parse process failed')
+      });
+    })
+  }
+
+*/

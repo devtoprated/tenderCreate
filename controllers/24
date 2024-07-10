@@ -1,0 +1,170 @@
+const ErrorHander = require("../utils/errorhander.js");
+const catchAsyncErrors = require("../middleware/catchAsyncErrors.js");
+const User = require("../models/userModel.js");
+const sendToken = require("../utils/jwtToken.js");
+const crypto = require("crypto");
+const Candidate = require("../models/candidateModel.js");
+const fs = require("fs");
+const path = require("path");
+const Organizations = require("../models/organizationModel.js");
+exports.registerCandidate = catchAsyncErrors(async (req, res, next) => {
+  const {
+    name,
+    department,
+    contact_no,
+    email,
+    total_experience,
+    ctc,
+    ectc,
+    notice_period,
+    address,
+    organization_id,
+    resume,
+    notes,
+    sourced_by,
+    comments_by_hr,
+    interview_schedule,
+    interview_id,
+    selected,
+    joining_date,
+    shortlisted,
+    Organization,
+  } = req.body;
+  let resFilePath1 = "";
+  let fileName = "";
+  let dataarray = [];
+
+  if (email === "") {
+    return next(new ErrorHander("Please Provide  email", 400));
+  }
+  if (name === "") {
+    return next(new ErrorHander("Please Provide  name ", 400));
+  }
+  if (department === "") {
+    return next(new ErrorHander("Please Provide  department ", 400));
+  }
+  if (contact_no === "") {
+    return next(new ErrorHander("Please Provide  contact_no ", 400));
+  }
+  if (total_experience === "") {
+    return next(new ErrorHander("Please Provide  total_experience ", 400));
+  }
+  if (ctc === "") {
+    return next(new ErrorHander("Please Provide  ctc ", 400));
+  }
+
+  const candidate = await Candidate.findOne({ email });
+  if (candidate) {
+    return next(new ErrorHander("Email already exists.", 400));
+  }
+  const candidateobj = new Candidate({
+    name: name,
+    department: department,
+    contact_no: contact_no,
+    email: email,
+    total_experience: total_experience,
+    ctc: ctc,
+    ectc: ectc,
+    notice_period: notice_period,
+    address: address,
+    resume: resume,
+    shortlisted: shortlisted,
+    notes: notes,
+    sourced_by: sourced_by,
+    comments_by_hr: comments_by_hr,
+    interview_schedule: interview_schedule,
+    selected: selected,
+    joining_date: joining_date,
+  });
+  const imageDir = `./public/resume/`;
+  const resImageDir = `/resume/`;
+  if (req.files?.resume) {
+    uploadPath = __dirname + "uploads";
+    if (!fs.existsSync(imageDir)) {
+      fs.mkdirSync(imageDir, { recursive: true });
+    }
+
+    if (
+      req.files?.resume.length === undefined ||
+      req.files?.resume.length == 1
+    ) {
+      let randstr = Math.random().toString(36).substring(2, 7);
+      let multimedia = req.files.resume;
+      let imageExt = path.extname(multimedia.name);
+      fileName = `${randstr}${imageExt}`;
+      let filePath = fileName;
+      resFilePath1 = imageDir + fileName;
+      dataarray.push(resImageDir + fileName);
+
+      multimedia.mv(resFilePath1);
+    } else {
+      req.files?.resume.forEach(function (files, index, arr) {
+        let randstr = Math.random().toString(36).substring(2, 7);
+        let multimedia = files;
+
+        let imageExt = path.extname(multimedia.name);
+        fileName = `${randstr}${imageExt}`;
+        let filePath = fileName;
+        resFilePath1 = imageDir + fileName;
+        dataarray.push(resImageDir + fileName);
+
+        multimedia.mv(resFilePath1);
+      });
+    }
+
+    candidateobj.resume = dataarray.toString();
+  }
+  let dats = await candidateobj.save();
+
+  const candidateIds = dats.id;
+  let orgdata = JSON.parse(req.body.Organization);
+  if (orgdata.length > 0) {
+    orgdata.forEach(async (data) => {
+      let obj = new Organizations();
+      obj.job_title = data.job_title;
+      obj.org_name = data.org_name;
+      obj.city = data.city;
+      obj.job_joining_date = data.job_joining_date;
+      obj.releiving_date = data.releiving_date;
+      obj.experience = data.experience;
+      obj.candidatesId = candidateIds;
+      let save = await obj.save();
+    });
+  }
+
+  res.status(200).json({
+    success: true,
+    result: dats,
+    message: "Candidate Added successful",
+  });
+});
+
+exports.getAllcandidate = catchAsyncErrors(async (req, res, next) => {
+  try {
+    const candidatelist = await Candidate.find();
+
+    const courses = await Candidate.find()
+      .populate("candidatesId") // find all populate in author model
+      .select("name");
+    console.log("CCCC", courses);
+    res.status(200).json({
+      sucess: true,
+      result: candidatelist,
+    });
+  } catch (err) {
+    console.log("Error in get tender", err);
+  }
+});
+
+exports.deletecandidate = catchAsyncErrors(async (req, res, next) => {
+  let id = req.params.id;
+  const tender = await Candidate.findById({ _id: id });
+  if (!tender) {
+    return next(new ErrorHander(" not found", 404));
+  }
+  await tender.remove();
+  res.status(200).json({
+    success: true,
+    message: "Candidate Item Deletion Successfull",
+  });
+});

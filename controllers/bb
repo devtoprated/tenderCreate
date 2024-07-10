@@ -1,0 +1,122 @@
+const ErrorHander = require("../utils/errorhander.js");
+const catchAsyncErrors = require("../middleware/catchAsyncErrors.js");
+const User = require("../models/userModel.js");
+const sendToken = require("../utils/jwtToken.js");
+const crypto = require("crypto");
+const Candidate = require("../models/candidateModel.js");
+
+exports.registerCandidate = catchAsyncErrors(async (req, res, next) => {
+  console.log("req", req.body);
+  const {
+    name,
+    department,
+    contact_no,
+    email,
+    total_experience,
+    ctc,
+    ectc,
+    notice_period,
+    address,
+    organization_id,
+    resume,
+    notes,
+    sourced_by,
+    comments_by_hr,
+    interview_schedule,
+    interview_id,
+    selected,
+    joining_date,
+  } = req.body;
+
+  if (
+    !email ||
+    !name ||
+    !department ||
+    !contact_no ||
+    !total_experience ||
+    !ctc ||
+    !ectc ||
+    !notice_period ||
+    !sourced_by
+  ) {
+    console.log(
+      "uffghjkl",
+      email,
+      name,
+      department,
+      contact_no,
+      total_experience,
+      ctc,
+      ectc,
+      notice_period,
+      sourced_by
+    );
+    return next(new ErrorHander("All Fields are required ", 400));
+  }
+
+  const candidate = await Candidate.findOne({ email });
+  if (candidate) {
+    return next(new ErrorHander("Email already exists.", 400));
+  }
+  const newCandidate = await Candidate.create({
+    name,
+    department,
+    contact_no,
+    email,
+    total_experience,
+    ctc,
+    ectc,
+    notice_period,
+    address,
+    organization_id,
+    resume,
+    notes,
+    sourced_by,
+    comments_by_hr,
+    interview_schedule,
+    interview_id,
+    selected,
+    joining_date,
+  });
+  if (newCandidate) {
+    res.status(200).json({
+      success: true,
+      result: newCandidate,
+      message: "Candidate Added successful",
+    });
+  } else {
+    res.status(400).json({
+      success: false,
+      message: "Candidate failed to add successful",
+    });
+  }
+});
+
+exports.getAllcandidate = catchAsyncErrors(async (req, res, next) => {
+  try {
+    const candidatelist = await Candidate.find();
+
+    res.status(200).json({
+      sucess: true,
+      result: candidatelist,
+    });
+  } catch (err) {
+    console.log("Error in get tender", err);
+  }
+});
+
+exports.deletecandidate = catchAsyncErrors(async (req, res, next) => {
+  let id = req.params.id;
+  const tender = await Candidate.findById({ _id: id });
+
+  if (!tender) {
+    return next(new ErrorHander(" not found", 404));
+  }
+
+  await tender.remove();
+
+  res.status(200).json({
+    success: true,
+    message: "Candidate Item Deletion Successfull",
+  });
+});
